@@ -8,6 +8,11 @@
 #                     '$request_time';
 
 import optparse
+from collections import namedtuple
+
+from os import walk
+
+import re
 
 config = {
     "REPORT_SIZE": 1000,
@@ -17,9 +22,25 @@ config = {
 }
 
 
+def is_last(f):
+    pass
+
+
+def get_named_tuple_with_newest_date(first, second):
+    return first if first.date > second.date else second
+
+
 def find_last_log_path(config):
     # Находим по регулярке последний лог
-    pass
+    last_log_path = None
+    for (dirpath, dirnames, filenames) in walk(config['LOG_DIR']):
+        for f in filenames:
+            match = re.match("(nginx-access-ui.log-)(\d{8})(.*)", f)
+            if match:
+                LogParams = namedtuple("LogParams", "path date ext")
+                params = LogParams(path=f, date=match.groups()[1], ext=match.groups()[2])
+                last_log_path = params if not last_log_path else get_named_tuple_with_newest_date(last_log_path, params)
+    return last_log_path
 
 
 def already_parsed(log_path):
@@ -28,7 +49,10 @@ def already_parsed(log_path):
 
 
 def merge_configs(user_config_path):
-    user_config = parse_user_config(user_config_path)
+    try:
+        user_config = parse_user_config(user_config_path)
+    except FileNotFoundError:
+        return config
     return {**config, **user_config}
 
 
@@ -70,7 +94,7 @@ def create_report(parsed_data):
     # генерируем html с отчётом
     pass
 
-
+# TODO Добавить логирование
 def main():
     actual_config = get_actual_config()
     log_path = find_last_log_path(actual_config)
