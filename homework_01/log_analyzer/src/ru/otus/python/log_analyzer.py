@@ -14,17 +14,23 @@ from os import walk
 
 import re
 
+import logging
+
+from datetime import datetime
+
 config = {
     "REPORT_SIZE": 1000,
     "REPORT_DIR": "./reports",
     "LOG_DIR": "./log",
+    "SELF_LOG_DIR": "./log",
     "ALLOWED_ERRORS_PERCENT": 15
 }
 
-
-def is_last(f):
-    pass
-
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] %(levelname).1s %(message)s',
+    datefmt='%Y.%m.%d %H:%M:%S',
+)
 
 def get_named_tuple_with_newest_date(first, second):
     return first if first.date > second.date else second
@@ -52,6 +58,7 @@ def merge_configs(user_config_path):
     try:
         user_config = parse_user_config(user_config_path)
     except FileNotFoundError:
+        logging.info("Не найден файл конфигурации по переданному пути %s" % user_config_path)
         return config
     return {**config, **user_config}
 
@@ -77,9 +84,11 @@ def get_actual_config():
     parser.add_option('--config', dest='path', type='string', help='specify config file path')
     (options, args) = parser.parse_args()
     if options.path is None:
+        logging.info("Путь к конфигурационному файлу не передан, используются стандартные настройки")
         return config
     else:
         path = options.path
+        logging.info("Передан путь к конфигурационному файлу, переопределяем стандартные настройки")
         return merge_configs(path)
 
 
@@ -94,15 +103,31 @@ def create_report(parsed_data):
     # генерируем html с отчётом
     pass
 
-# TODO Добавить логирование
+
+def update_logger_config(config):
+    logging.basicConfig(
+        filename=None if not config['SELF_LOG_DIR'] else config['SELF_LOG_DIR'] + '/log-' + str(datetime.now()),
+    )
+
+
 def main():
+    logging.info("Скрипт запущен. Получаем актуальные настройки.")
     actual_config = get_actual_config()
+    update_logger_config(actual_config)
+    logging.info("Ищем свежий файл с логами.")
     log_path = find_last_log_path(actual_config)
     if (already_parsed(log_path)):
+        logging.info("Отчёт для последнего лога уже был составлен. Заканчиваем выполнение скрипта.")
         return
+    logging.info("Разбираем файл с логами.")
     parsed_data = parse_log(log_path)
-    if parsed_data.errors_percent > actual_config['ALLOWED_ERRORS_PERCENT']:
+    if not parsed_data:
+        logging.info("Разобранная информация пуста.")
         return
+    if parsed_data.errors_percent > actual_config['ALLOWED_ERRORS_PERCENT']:
+        logging.info("Не удалось распарсить отчёт, превышен лимит ошибок. Заканчиваем выполнение скрипта.")
+        return
+    logging.info("Создаём файл с отчётом.")
     create_report(parsed_data)
 
 
