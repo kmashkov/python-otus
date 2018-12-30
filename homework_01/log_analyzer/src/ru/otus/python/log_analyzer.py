@@ -32,26 +32,31 @@ logging.basicConfig(
     datefmt='%Y.%m.%d %H:%M:%S',
 )
 
+
 def get_named_tuple_with_newest_date(first, second):
     return first if first.date > second.date else second
 
 
-def find_last_log_path(config):
-    # Находим по регулярке последний лог
-    last_log_path = None
-    for (dirpath, dirnames, filenames) in walk(config['LOG_DIR']):
+def find_last_log_params(actual_config):
+    last_log_params = None
+    for (dirpath, dirnames, filenames) in walk(actual_config['LOG_DIR']):
         for f in filenames:
-            match = re.match("(nginx-access-ui.log-)(\d{8})(.*)", f)
+            match = re.match('(nginx-access-ui.log-)(\d{8})(.*)', f)
             if match:
-                LogParams = namedtuple("LogParams", "path date ext")
+                LogParams = namedtuple('LogParams', 'path date ext')
                 params = LogParams(path=f, date=match.groups()[1], ext=match.groups()[2])
-                last_log_path = params if not last_log_path else get_named_tuple_with_newest_date(last_log_path, params)
-    return last_log_path
+                last_log_params = params if not last_log_params else get_named_tuple_with_newest_date(last_log_params, params)
+    return last_log_params
 
 
-def already_parsed(log_path):
-    # Проверяем в папке отчётов, есть ли уже отчёт для данного лога
-    pass
+def already_parsed(actual_config, log_params):
+    date = log_params.date
+    for (dirpath, dirnames, filenames) in walk(actual_config['REPORT_DIR']):
+        for f in filenames:
+            match = re.match('report-' + date[:4] + '.' + date[4:6] + '.' + date[6:], f)
+            if match:
+                return True
+    return False
 
 
 def merge_configs(user_config_path):
@@ -69,12 +74,12 @@ def parse_user_config(user_config_path):
         for line in config_file:
             line = line.rstrip()
 
-            if "=" not in line:
+            if '=' not in line:
                 continue
-            if line.startswith("#"):
+            if line.startswith('#'):
                 continue
 
-            k, v = line.split("=", 1)
+            k, v = line.split('=', 1)
             user_config[k.upper()] = int(v) if v.isdigit() else v
     return user_config
 
@@ -84,51 +89,59 @@ def get_actual_config():
     parser.add_option('--config', dest='path', type='string', help='specify config file path')
     (options, args) = parser.parse_args()
     if options.path is None:
-        logging.info("Путь к конфигурационному файлу не передан, используются стандартные настройки")
+        logging.info('Путь к конфигурационному файлу не передан, используются стандартные настройки')
         return config
     else:
         path = options.path
-        logging.info("Передан путь к конфигурационному файлу, переопределяем стандартные настройки")
+        logging.info('Передан путь к конфигурационному файлу, переопределяем стандартные настройки')
         return merge_configs(path)
 
 
-def parse_log(log_path):
+def parse_log(actual_config, log_params):
     # Парсим лог и возвращаем список кортежей строк с обращениями к страницам
     pass
 
 
-def create_report(parsed_data):
+def create_report(actual_config, parsed_data):
     # считаем статистику по страницам
     # готовим table_json
     # генерируем html с отчётом
     pass
 
 
-def update_logger_config(config):
+def update_logger_config(actual_config):
     logging.basicConfig(
-        filename=None if not config['SELF_LOG_DIR'] else config['SELF_LOG_DIR'] + '/log-' + str(datetime.now()),
+        filename=None if not actual_config['SELF_LOG_DIR'] else actual_config['SELF_LOG_DIR'] + '/log-' + str(datetime.now()),
     )
 
 
 def main():
-    logging.info("Скрипт запущен. Получаем актуальные настройки.")
+    logging.info('Скрипт запущен. Получаем актуальные настройки.')
     actual_config = get_actual_config()
     update_logger_config(actual_config)
-    logging.info("Ищем свежий файл с логами.")
-    log_path = find_last_log_path(actual_config)
-    if (already_parsed(log_path)):
+
+    logging.info('Ищем свежий файл с логами.')
+    log_params = find_last_log_params(actual_config)
+    if not log_params:
+        logging.info('Свежий файл с логами не найден. Заканчиваем выполнение скрипта.')
+        return
+
+    logging.info('Проверяем, есть ли уже отчёт по найденному логу.')
+    if already_parsed(actual_config, log_params):
         logging.info("Отчёт для последнего лога уже был составлен. Заканчиваем выполнение скрипта.")
         return
-    logging.info("Разбираем файл с логами.")
-    parsed_data = parse_log(log_path)
+
+    logging.info('Разбираем файл с логами.')
+    parsed_data = parse_log(actual_config, log_params)
     if not parsed_data:
-        logging.info("Разобранная информация пуста.")
+        logging.info('Разобранная информация пуста. Заканчиваем выполнение скрипта.')
         return
     if parsed_data.errors_percent > actual_config['ALLOWED_ERRORS_PERCENT']:
-        logging.info("Не удалось распарсить отчёт, превышен лимит ошибок. Заканчиваем выполнение скрипта.")
+        logging.info('Не удалось распарсить отчёт, превышен лимит ошибок. Заканчиваем выполнение скрипта.')
         return
-    logging.info("Создаём файл с отчётом.")
-    create_report(parsed_data)
+
+    logging.info('Создаём файл с отчётом.')
+    create_report(actual_config, parsed_data)
 
 
 if __name__ == "__main__":
