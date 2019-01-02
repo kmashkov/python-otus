@@ -6,8 +6,9 @@
 #                     '$status $body_bytes_sent "$http_referer" '
 #                     '"$http_user_agent" "$http_x_forwarded_for" "$http_X_REQUEST_ID" "$http_X_RB_USER" '
 #                     '$request_time';
-
+import gzip
 import optparse
+import os
 from collections import namedtuple
 
 from os import walk
@@ -23,7 +24,9 @@ config = {
     "REPORT_DIR": "./reports",
     "LOG_DIR": "./log",
     "SELF_LOG_DIR": "./log",
-    "ALLOWED_ERRORS_PERCENT": 15
+    "LOG_REGEXP": '(?P<remote_addr>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s+(?P<remote_user>\-|.*)\s+(?P<http_x_real_ip>\-|.*)\s+\[(?P<time_local>\d{2}\/[a-zA-Z]{3}\/\d{4}:\d{2}:\d{2}:\d{2}\s+(?P<offset_tz>(?P<offset_dir>\+|\-)(?P<offset_hour>\d{2})(?P<offset_min>\d{2})))\]\s+(?P<request>\"(?P<method>GET|POST|UPDATE|DELETE)\s+(?P<url>.+)\s+(?P<http_version>HTTP\/1\.[0-1])\")\s+(?P<status>\d{3})\s+(?P<body_bytes_sent>\d+)\s+\"(?P<http_referer>.+)\"\s+\"(?P<http_user_agent>.+)\"\s+\"(?P<http_x_forwarded_for>\-|.*)\"\s+\"(?P<http_X_REQUEST_ID>.+)\"\s+\"(?P<http_X_RB_USER>\-|.*)\"\s+(?P<request_time>.+)',
+    "ALLOWED_ERRORS_PERCENT": 15,
+    "ALLOWED_EXTENSIONS": ['', '.gz']
 }
 
 logging.basicConfig(
@@ -33,7 +36,9 @@ logging.basicConfig(
 )
 
 
-def get_named_tuple_with_newest_date(first, second):
+def get_named_tuple_with_newest_date(actual_config, first, second):
+    if second.ext not in actual_config['ALLOWED_EXTENSIONS']:
+        return first if first.ext in actual_config['ALLOWED_EXTENSIONS'] else None
     return first if first.date > second.date else second
 
 
@@ -45,7 +50,7 @@ def find_last_log_params(actual_config):
             if match:
                 LogParams = namedtuple('LogParams', 'path date ext')
                 params = LogParams(path=f, date=match.groups()[1], ext=match.groups()[2])
-                last_log_params = params if not last_log_params else get_named_tuple_with_newest_date(last_log_params, params)
+                last_log_params = params if not last_log_params else get_named_tuple_with_newest_date(actual_config, last_log_params, params)
     return last_log_params
 
 
@@ -97,9 +102,30 @@ def get_actual_config():
         return merge_configs(path)
 
 
+def parse_line(actual_config, line):
+    data = re.search(actual_config['LOG_REGEXP'], line)
+    if data:
+        datadict = data.groupdict()
+        LineParams = namedtuple('LineParams', ' '.join(datadict.keys()))
+        return LineParams(**datadict)
+
+
 def parse_log(actual_config, log_params):
-    # Парсим лог и возвращаем список кортежей строк с обращениями к страницам
-    pass
+    log_path = os.path.join(actual_config['LOG_DIR'], log_params.path)
+    if log_params.ext == ".gz":
+        log = gzip.open(log_path, 'rb')
+    else:
+        log = open(log_path)
+    total = processed = 0
+    with log:
+        for line in log:
+            parsed_line = parse_line(actual_config, line)
+            total += 1
+            if parsed_line:
+                processed += 1
+                yield parsed_line
+    if total and processed * 100 / total < 100 - actual_config['ALLOWED_ERRORS_PERCENT']:
+        raise RuntimeError('Превышен процент допустимых ошибок при разборе лога')
 
 
 def create_report(actual_config, parsed_data):
@@ -132,16 +158,10 @@ def main():
         return
 
     logging.info('Разбираем файл с логами.')
-    parsed_data = parse_log(actual_config, log_params)
-    if not parsed_data:
-        logging.info('Разобранная информация пуста. Заканчиваем выполнение скрипта.')
-        return
-    if parsed_data.errors_percent > actual_config['ALLOWED_ERRORS_PERCENT']:
-        logging.info('Не удалось распарсить отчёт, превышен лимит ошибок. Заканчиваем выполнение скрипта.')
-        return
+    parsed_data_gen = parse_log(actual_config, log_params)
 
     logging.info('Создаём файл с отчётом.')
-    create_report(actual_config, parsed_data)
+    create_report(actual_config, parsed_data_gen)
 
 
 if __name__ == "__main__":
