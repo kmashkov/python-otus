@@ -1,4 +1,3 @@
-import gzip
 import os
 import unittest
 from collections import namedtuple
@@ -49,16 +48,6 @@ class LogAnalyzerTest(unittest.TestCase):
         # Объединяем с несуществущим конфигом
         with self.assertRaises(RuntimeError, msg='Несуществующий конфиг обработался без ошибок'):
             log_analyzer.merge_configs("../src/ru/otus/python/resources/cfg.properties")
-
-        # На случай если вместо ошибки возвращается конфиг по-умолчанию
-        # config = log_analyzer.merge_configs("../src/ru/otus/python/resources/cfg.properties")
-        # self.assertIsNotNone(config, 'Возвращён пустой конфиг')
-        # self.assertEqual(len(config), CONFIG_SIZE, 'Неправильное количество настроек')
-        # self.assertEqual(
-        #     config['ALLOWED_ERRORS_PERCENT'],
-        #     DEFAULT_ALLOWED_ERRORS_PERCENT,
-        #     'Неправильно объединены конфиги'
-        # )
 
     def test_find_last_log(self):
         """
@@ -188,36 +177,6 @@ class LogAnalyzerTest(unittest.TestCase):
             actual = f.read()
         self.assertEqual(expected, actual, 'Сгенерированный отчёт не соответствует эквиваленту')
         os.remove(actual_path)
-
-    # def test_create_big_report(self):
-    #     """
-    #     Проверяем правильность создания отчёта по большому объ]му данных
-    #     """
-    #     # Передаём большой лог c демо данными
-    #     log_analyzer.create_report(
-    #         test_config,
-    #         log_analyzer.parse_log(
-    #             test_config,
-    #             LogParams(path=LAST_LOG_FILENAME, date=LAST_LOG_DATE, ext=LAST_LOG_EXTENSION)
-    #         ),
-    #         LogParams(path=LAST_LOG_FILENAME, date=LAST_LOG_DATE, ext=LAST_LOG_EXTENSION)
-    #     )
-    #     expected_path = os.path.join(test_config['REPORT_DIR'], 'sample-report-2017.06.30.html')
-    #     with open(
-    #             expected_path,
-    #             'r',
-    #             encoding='UTF-8') as f:
-    #         expected = f.read()
-    #     self.assertIsNotNone(expected, 'Сгенерированный отчёт пуст')
-    #
-    #     actual_path = os.path.join(test_config['REPORT_DIR'], 'report-20170630.html')
-    #     with gzip.open(
-    #             actual_path,
-    #             'r',
-    #             encoding='UTF-8') as f:
-    #         actual = f.read()
-    #     # self.assertEqual(expected, actual, 'Сгенерированный отчёт не соответствует эквиваленту')
-    #     os.remove(actual_path)
 
 
 if __name__ == "__main__":

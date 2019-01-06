@@ -84,11 +84,6 @@ def merge_configs(user_config_path):
         user_config = parse_user_config(user_config_path)
     except FileNotFoundError:
         raise RuntimeError("Не найден файл конфигурации по переданному пути %s" % user_config_path)
-        # По условию задания нужно возвращать ошибку, но по идее можно продолжить дальнейшую обработку
-        # с настройками по-умолчанию.
-        # logging.error("Не найден файл конфигурации по переданному пути %s. Используем настройки по-умолчанию."
-        # % user_config_path)
-        # return config
     return {**config, **user_config}
 
 
@@ -147,7 +142,7 @@ def parse_log(actual_config, log_params):
         raise RuntimeError('Превышен процент допустимых ошибок при разборе лога')
 
 
-def calculate_statistics(actual_config, parsed_data_gen):
+def calculate_statistics(parsed_data_gen):
     statistics = {}
     total_count = 0
     total_time = 0.0
@@ -180,9 +175,13 @@ def calculate_statistics(actual_config, parsed_data_gen):
             median(times[data.url])
         )
         logging.debug('Обработано ' + str(total_count) + ' строк.')
+    return statistics.values()
+
+
+def prepare_json(actual_config, data):
     res = []
     logging.info('Сортируем отчёт по количеству обращений.')
-    for params in sorted(statistics.values(), key=attrgetter('time_sum'), reverse=True)[:actual_config['REPORT_SIZE']]:
+    for params in sorted(data, key=attrgetter('time_sum'), reverse=True)[:actual_config['REPORT_SIZE']]:
         res.append(params._asdict())
     logging.info('Передаём json с данными для дальнейшей обработки.')
     return json.dumps(res)
@@ -196,9 +195,9 @@ def generate_report(actual_config, report_data):
 
 def create_report(actual_config, parsed_data_gen, log_params):
     logging.info('Считаем статистику по страницам.')
-    report_data = calculate_statistics(actual_config, parsed_data_gen)
+    report_data = calculate_statistics(parsed_data_gen)
     logging.info('Генерируем html с отчётом.')
-    report = generate_report(actual_config, report_data)
+    report = generate_report(actual_config, prepare_json(actual_config, report_data))
     date = log_params.date
     logging.info('Сохраняем отчёт в файл.')
     with open(
