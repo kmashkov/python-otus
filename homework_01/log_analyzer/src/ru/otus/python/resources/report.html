@@ -59,7 +59,7 @@
   </tbody>
 
   <script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
-  <script type="text/javascript" src="jquery.tablesorter.min.js"></script> 
+  <script type="text/javascript" src="/js/ jquery.tablesorter.min.js"></script>
   <script type="text/javascript">
   !function($) {
     var table = $table_json;
@@ -110,7 +110,8 @@
             $cell.append($link);
           }
           else {
-            $cell.text(row[columnName]);
+            var value = columnName == "count" ? row[columnName] : row[columnName].toFixed(3)
+            $cell.text(value);
             if (columnName == "time_avg" && row[columnName] > 0.9) {
               $cell.addClass("alert");
             }
