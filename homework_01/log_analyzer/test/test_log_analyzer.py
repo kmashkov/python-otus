@@ -1,6 +1,7 @@
 import os
 import unittest
 from collections import namedtuple
+from datetime import datetime
 
 import log_analyzer
 
@@ -8,10 +9,13 @@ import log_analyzer
 LogParams = namedtuple('LogParams', 'path date ext')
 
 LAST_LOG_EXTENSION = '.gz'
-LAST_LOG_DATE = '20170530'
+LAST_LOG_DATE = datetime.strptime('20170530', "%Y%m%d").date()
 LAST_LOG_FILENAME = 'nginx-access-ui.log-20170530.gz'
 LAST_LOG_REPORT = 'report-2017.05.30.html'
 NOT_EMPTY_LOG_REPORT = 'sample-report-2017.08.02.html'
+ERROR_LOG_DATE = datetime.strptime('20170801', "%Y%m%d").date()
+EMPTY_LOG_DATE = datetime.strptime('20161209', "%Y%m%d").date()
+NOT_EMPTY_LOG_DATE = datetime.strptime('20170802', "%Y%m%d").date()
 USER_ALLOWED_ERRORS_PERCENT = 25
 DEFAULT_ALLOWED_ERRORS_PERCENT = 15
 CONFIG_SIZE = 10
@@ -39,21 +43,21 @@ class LogAnalyzerTest(unittest.TestCase):
         """
         # Объединяем с существущим конфигом
         config = log_analyzer.merge_configs('../src/resources/config.properties')
-        self.assertIsNotNone(config, 'Возвращён пустой конфиг')
-        self.assertEqual(len(config), CONFIG_SIZE, 'Неправильное количество настроек')
+        self.assertIsNotNone(config, 'Empty config returned')
+        self.assertEqual(len(config), CONFIG_SIZE, 'Wrong count of settings')
         self.assertEqual(
             config["ALLOWED_ERRORS_PERCENT"],
             USER_ALLOWED_ERRORS_PERCENT,
-            'Неправильно объединены конфиги'
+            'Wrong allowed_errors_percent in merged config'
         )
         self.assertEqual(
             config["LOG_REGEXP"],
             ANOTHER_REGEXP,
-            'Неправильно объединены конфиги'
+            'Wrong allowed_errors_percent in merged config'
         )
 
         # Объединяем с несуществущим конфигом
-        with self.assertRaises(FileNotFoundError, msg='Несуществующий конфиг обработался без ошибок'):
+        with self.assertRaises(FileNotFoundError, msg='Wrong config path processed without errors'):
             log_analyzer.merge_configs("../src/resources/cfg.properties")
 
     def test_find_last_log(self):
@@ -61,33 +65,33 @@ class LogAnalyzerTest(unittest.TestCase):
         Проверяем правильность нахождения последнего лога
         """
         last_log = log_analyzer.find_last_log_params(test_config)
-        self.assertIsNotNone(last_log, 'Последний лог не найден')
-        self.assertIsNotNone(last_log.date, 'Не распарсилась дата в имени лога')
-        self.assertIsNotNone(last_log.ext, 'Не распарсилось расширение в имени лога')
-        self.assertEqual(last_log.path, LAST_LOG_FILENAME, 'Неправильно выбран лог')
-        self.assertEqual(last_log.date, LAST_LOG_DATE, 'Неправильно распарсилась дата в имени лога')
-        self.assertEqual(last_log.ext, LAST_LOG_EXTENSION, 'Неправильно распарсилось расширение в имени лога')
+        self.assertIsNotNone(last_log, 'Latest log is not found')
+        self.assertIsNotNone(last_log.date, 'Log date has not parsed')
+        self.assertIsNotNone(last_log.ext, 'Log extension has not parsed')
+        self.assertEqual(last_log.path, LAST_LOG_FILENAME, 'Wrong log chosen as latest')
+        self.assertEqual(last_log.date, LAST_LOG_DATE, 'Wrong date parsed')
+        self.assertEqual(last_log.ext, LAST_LOG_EXTENSION, 'Wrong extension parsed')
 
     def test_already_parsed(self):
         """
         Проверяем правильность определения, что отчёт уже сформирован
         """
         # Передаём лог со сформированным отчётом
-        report_path = os.path.join(test_config['REPORT_DIR'], 'report-2017.05.23.html')
+        report_path = os.path.join(test_config['REPORT_DIR'], 'report-2017.05.30.html')
         with open(report_path, 'a'):
             already_parsed = log_analyzer.already_parsed(
                 test_config,
-                LogParams(path='nginx-access-ui.log-20170523', date='20170523', ext='')
+                LogParams(path='nginx-access-ui.log-20170530', date=datetime.strptime('20170530', "%Y%m%d").date(), ext='')
             )
-            self.assertTrue(already_parsed, 'Не удалось определить, что отчёт уже сформирован')
+            self.assertTrue(already_parsed, 'Could not determine that log is already parsed')
         os.remove(report_path)
 
         # Передаём лог с несформированным отчётом
         already_parsed = log_analyzer.already_parsed(
             test_config,
-            LogParams(path='nginx-access-ui.log-20170724', date='20170724', ext='')
+            LogParams(path='nginx-access-ui.log-20170724', date=datetime.strptime('20170724', "%Y%m%d").date(), ext='')
         )
-        self.assertFalse(already_parsed, 'Не удалось определить, что отчёт ещё не сформирован')
+        self.assertFalse(already_parsed, 'Could not determine that log is not parsed yet')
 
     def test_parse_log(self):
         """
@@ -96,37 +100,37 @@ class LogAnalyzerTest(unittest.TestCase):
         # Передаём лог с корректными строками
         log_gen = log_analyzer.parse_log(
             test_config,
-            LogParams(path='test_not_empty_log-20170802', date='20170802', ext='')
+            LogParams(path='test_not_empty_log-20170802', date=NOT_EMPTY_LOG_DATE, ext='')
         )
-        self.assertIsNotNone(log_gen, 'Не удалось разобрать последний лог')
+        self.assertIsNotNone(log_gen, 'Could not parse latest log')
         first_parsed_line = next(log_gen)
-        self.assertEqual(first_parsed_line.url, '/api/v2/banner/25019354', 'Неправильно распарсился url в первой строке лога')
-        self.assertEqual(first_parsed_line.request_time, '0.390', 'Неправильно распарсился request_time впервой строке лога')
+        self.assertEqual(first_parsed_line.url, '/api/v2/banner/25019354', 'Wrong url is parsed in first log row')
+        self.assertEqual(first_parsed_line.request_time, '0.390', 'Wrong request_time is parsed in first log row')
 
         # Передаём лог с корректными строками в архиве .gz
         log_gen = log_analyzer.parse_log(
             test_config,
-            LogParams(path='test_not_empty_log-20170802.gz', date='20170802', ext='.gz')
+            LogParams(path='test_not_empty_log-20170802.gz', date=NOT_EMPTY_LOG_DATE, ext='.gz')
         )
-        self.assertIsNotNone(log_gen, 'Не удалось разобрать последний лог')
+        self.assertIsNotNone(log_gen, 'Could not parse latest log')
         first_parsed_line = next(log_gen)
-        self.assertEqual(first_parsed_line.url, '/api/v2/banner/25019354', 'Неправильно распарсился url в первой строке лога')
-        self.assertEqual(first_parsed_line.request_time, '0.390', 'Неправильно распарсился request_time впервой строке лога')
+        self.assertEqual(first_parsed_line.url, '/api/v2/banner/25019354', 'Wrong url is parsed in first log row')
+        self.assertEqual(first_parsed_line.request_time, '0.390', 'Wrong request_time is parsed in first log row')
 
         # Передаём пустой лог
         empty_log_gen = log_analyzer.parse_log(
             test_config,
-            LogParams(path='test_empty_log-20161209', date='20161209', ext='')
+            LogParams(path='test_empty_log-20161209', date=EMPTY_LOG_DATE, ext='')
         )
-        with self.assertRaises(StopIteration, msg='Пустой лог вернул не пустые данные'):
+        with self.assertRaises(StopIteration, msg='Empty log returned not empty results'):
             next(empty_log_gen)
 
         # Передаём лог с неправильными строками
         error_log_gen = log_analyzer.parse_log(
             test_config,
-            LogParams(path='test_with_errors_log-20170801', date='20170801', ext='')
+            LogParams(path='test_with_errors_log-20170801', date=ERROR_LOG_DATE, ext='')
         )
-        with self.assertRaises(RuntimeError, msg='Лог с неправильными строками обработался без ошибок'):
+        with self.assertRaises(RuntimeError, msg='Log with wrong rows has processed without errors'):
             sum(1 for _ in error_log_gen)
 
     def test_create_report(self):
@@ -138,9 +142,9 @@ class LogAnalyzerTest(unittest.TestCase):
             test_config,
             log_analyzer.parse_log(
                 test_config,
-                LogParams(path='test_not_empty_log-20170802', date='20170802', ext='')
+                LogParams(path='test_not_empty_log-20170802', date=NOT_EMPTY_LOG_DATE, ext='')
             ),
-            LogParams(path='test_not_empty_log-20170802', date='20170802', ext='')
+            LogParams(path='test_not_empty_log-20170802', date=NOT_EMPTY_LOG_DATE, ext='')
         )
         expected_path = os.path.join(test_config['REPORT_DIR'], NOT_EMPTY_LOG_REPORT)
         with open(
@@ -148,7 +152,7 @@ class LogAnalyzerTest(unittest.TestCase):
                 'r',
                 encoding='UTF-8') as f:
             expected = f.read()
-        self.assertIsNotNone(expected, 'Сгенерированный отчёт пуст')
+        self.assertIsNotNone(expected, 'Generated report is empty')
 
         actual_path = os.path.join(test_config['REPORT_DIR'], 'report-2017.08.02.html')
         with open(
@@ -156,7 +160,7 @@ class LogAnalyzerTest(unittest.TestCase):
                 'r',
                 encoding='UTF-8') as f:
             actual = f.read()
-        self.assertEqual(expected, actual, 'Сгенерированный отчёт не соответствует эквиваленту')
+        self.assertEqual(expected, actual, 'Generated report is not equal to sample')
         os.remove(actual_path)
 
     def test_create_report_with_another_regex(self):
@@ -174,9 +178,9 @@ class LogAnalyzerTest(unittest.TestCase):
                     "LOGGING_LEVEL": 'DEBUG',
                     "LOG_REGEXP": ANOTHER_REGEXP
                 },
-                LogParams(path='test_not_empty_log-20170802', date='20170802', ext='')
+                LogParams(path='test_not_empty_log-20170802', date=NOT_EMPTY_LOG_DATE, ext='')
             ),
-            LogParams(path='test_not_empty_log-20170802', date='20170802', ext='')
+            LogParams(path='test_not_empty_log-20170802', date=NOT_EMPTY_LOG_DATE, ext='')
         )
         expected_path = os.path.join(test_config['REPORT_DIR'], NOT_EMPTY_LOG_REPORT)
         with open(
@@ -184,7 +188,7 @@ class LogAnalyzerTest(unittest.TestCase):
                 'r',
                 encoding='UTF-8') as f:
             expected = f.read()
-        self.assertIsNotNone(expected, 'Сгенерированный отчёт пуст')
+        self.assertIsNotNone(expected, 'Generated report is empty')
 
         actual_path = os.path.join(test_config['REPORT_DIR'], 'report-2017.08.02.html')
         with open(
@@ -192,7 +196,7 @@ class LogAnalyzerTest(unittest.TestCase):
                 'r',
                 encoding='UTF-8') as f:
             actual = f.read()
-        self.assertEqual(expected, actual, 'Сгенерированный отчёт не соответствует эквиваленту')
+        self.assertEqual(expected, actual, 'Generated report is not equal to sample')
         os.remove(actual_path)
 
 
