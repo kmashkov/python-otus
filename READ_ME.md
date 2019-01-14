@@ -1,1 +1,0 @@
-### ДЗ по курсу [Разработчик Python от OTUS](https://otus.ru/lessons/razrabotchik-python/)
