@@ -32,6 +32,6 @@ python3 -m unittest test/test_log_analyzer.py
 
 ### Запуск анализатора
 ```
-cd src/ru/otus/python
+cd src/
 python3 log_analyzer.py [--config <config_path>]
 ```
