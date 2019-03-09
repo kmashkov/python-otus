@@ -3,7 +3,6 @@
 
 import abc
 import json
-import datetime
 import logging
 import hashlib
 import re
@@ -41,10 +40,15 @@ GENDERS = {
 
 
 class GeneralField(object):
-    def __init__(self, required=False, nullable=True):
+    def __init__(self, name, required=False, nullable=True):
+        self._name = name
         self._required = required
         self._nullable = nullable
         self._value = None
+
+    @property
+    def name(self):
+        return self._name
 
     @property
     def value(self):
@@ -55,9 +59,11 @@ class GeneralField(object):
         self._value = value
 
     def check(self, validation_errors):
-        if (self._required or self._nullable) and not self.value:
-            validation_errors.append("Field can't be null.")
-        if self.value is not None and self.value != '':
+        if self._required and self.value is None:
+            validation_errors.append(f"Field {self.name} must be presented in request")
+        if not self._nullable and not self.value:
+            validation_errors.append(f"Field {self.name} can't be empty.")
+        if self.value:
             self.check_value(validation_errors)
         return validation_errors
 
@@ -67,9 +73,20 @@ class GeneralField(object):
 
 
 class GeneralRequest(object):
+    def __init__(self, d):
+        self._fields = []
+
+    @property
+    def fields(self):
+        return self._fields
+
+    @fields.setter
+    def fields(self, fields):
+        self._fields = fields
+
     def check(self):
         validation_errors = []
-        for _ in self.__dict__:
+        for _ in self.fields:
             _.check(validation_errors)
         return validation_errors
 
@@ -77,120 +94,207 @@ class GeneralRequest(object):
 class CharField(GeneralField):
     def check_value(self, validation_errors):
         if not isinstance(self.value, str):
-            validation_errors.append("Field must be str.")
+            validation_errors.append(f"CharField {self.name} must be a str.")
 
 
 class ArgumentsField(GeneralField):
     def check_value(self, validation_errors):
         if not isinstance(self.value, dict):
-            validation_errors.append("Arguments must be dict.")
+            validation_errors.append(f"ArgumentsField {self.name} must be a dict.")
 
 
 class EmailField(CharField):
     def check_value(self, validation_errors):
-        super(validation_errors)
+        super().check_value(validation_errors)
         if '@' not in self.value:
-            validation_errors.append("Email must contain '@'.")
+            validation_errors.append(f"EmailField {self.name} must contain '@'.")
 
 
 class PhoneField(GeneralField):
     def check_value(self, validation_errors):
-        match = re.match("^7\d{10}$", self.value)
+        if not isinstance(self.value, (str, int)):
+            validation_errors.append(f"PhoneField {self.name} must be a str or an int.")
+        match = re.match("^7\d{10}$", self.value if isinstance(self.value, str) else str(self.value))
         if not match:
-            validation_errors.append("Phone must contain 11 digits, starting from 7")
+            validation_errors.append(f"PhoneField {self.name} must contain 11 digits, starting from 7")
 
 
 class DateField(GeneralField):
     def check_value(self, validation_errors):
         match = re.match("^\d{2}\.\d{2}\.\d{4}$", self.value)
         if not match:
-            validation_errors.append("Date must has pattern DD.MM.YYYY")
+            validation_errors.append(f"DateField {self.name} must has pattern DD.MM.YYYY")
 
 
 class BirthDayField(DateField):
     def check_value(self, validation_errors):
-        super(validation_errors)
+        super().check_value(validation_errors)
         current_year = datetime.now().year
         value_year = datetime.strptime(self.value, "%d.%m.%Y").year
 
         if current_year - value_year > 70:
-            validation_errors.append("Birthday must be less than 70 years ago")
+            validation_errors.append(f"BirthdayField {self.name} must be less than 70 years ago")
 
 
 class GenderField(GeneralField):
     def check_value(self, validation_errors):
-        if self.value is not any([0, 1, 2]):
-            validation_errors.append("Gender must be 0, 1 or 2")
+        if not isinstance(self.value, int):
+            validation_errors.append(f"GenderField {self.name} must be an int.")
+        if not any(self.value == digit for digit in [0, 1, 2]):
+            validation_errors.append(f"GenderField {self.name} must be 0, 1 or 2.")
 
 
 class ClientIDsField(GeneralField):
     def check_value(self, validation_errors):
-        if not isinstance(self.value, int):
-            validation_errors.append("Field must be int.")
+        if not isinstance(self.value, list) or not all(isinstance(val, int) for val in self.value):
+            validation_errors.append(f"ClientIDsField {self.name} must be a list of int.")
 
 
 class ClientsInterestsRequest(GeneralRequest):
-    client_ids = ClientIDsField(required=True)
-    date = DateField(required=False, nullable=True)
+    client_ids = ClientIDsField('client_ids', required=True, nullable=False)
+    date = DateField('date', required=False, nullable=True)
+
+    def __init__(self, d):
+        super().__init__(d)
+        self.client_ids.value = d.get('client_ids')
+        self.fields.append(self.client_ids)
+        self.date.value = d.get('date')
+        self.fields.append(self.date)
+
+    def count_ids(self):
+        if self.client_ids.value is None:
+            return 0
+        return len(self.client_ids.value)
 
 
 class OnlineScoreRequest(GeneralRequest):
-    first_name = CharField(required=False, nullable=True)
-    last_name = CharField(required=False, nullable=True)
-    email = EmailField(required=False, nullable=True)
-    phone = PhoneField(required=False, nullable=True)
-    birthday = BirthDayField(required=False, nullable=True)
-    gender = GenderField(required=False, nullable=True)
+    first_name = CharField('first_name', required=False, nullable=True)
+    last_name = CharField('last_name', required=False, nullable=True)
+    email = EmailField('email', required=False, nullable=True)
+    phone = PhoneField('phone', required=False, nullable=True)
+    birthday = BirthDayField('birthday', required=False, nullable=True)
+    gender = GenderField('gender', required=False, nullable=True)
+
+    def __init__(self, d):
+        super().__init__(d)
+        self.first_name.value = d.get('first_name')
+        self.fields.append(self.first_name)
+        self.last_name.value = d.get('last_name')
+        self.fields.append(self.last_name)
+        self.email.value = d.get('email')
+        self.fields.append(self.email)
+        self.phone.value = d.get('phone')
+        self.fields.append(self.phone)
+        self.birthday.value = d.get('birthday')
+        self.fields.append(self.birthday)
+        self.gender.value = d.get('gender')
+        self.fields.append(self.gender)
+
+    def has_attrs(self):
+        attrs = []
+        for _ in self.fields:
+            if _.value is not None:
+                attrs.append(_.name)
+        return attrs
+
+    def check(self):
+        validation_errors = super().check()
+        if not ((self.phone.value and self.email.value) or
+                (self.first_name.value and self.last_name.value) or
+                (self.gender.value is not None and self.birthday.value)):
+            validation_errors.append(
+                'Some of the pairs phone‑email, first_name‑last_name or gender‑birthday must be filled')
+        return validation_errors
 
 
 class MethodRequest(GeneralRequest):
-    account = CharField(required=False, nullable=True)
-    login = CharField(required=True, nullable=True)
-    token = CharField(required=True, nullable=True)
-    arguments = ArgumentsField(required=True, nullable=True)
-    method = CharField(required=True, nullable=False)
+    account = CharField('account', required=False, nullable=True)
+    login = CharField('login', required=True, nullable=True)
+    token = CharField('token', required=True, nullable=True)
+    arguments = ArgumentsField('arguments', required=True, nullable=True)
+    method = CharField('method', required=True, nullable=False)
+
+    def __init__(self, d):
+        super().__init__(d)
+        self.account.value = d.get('account')
+        self.fields.append(self.account)
+        self.login.value = d.get('login')
+        self.fields.append(self.login)
+        self.token.value = d.get('token')
+        self.fields.append(self.token)
+        self.arguments.value = d.get('arguments')
+        self.fields.append(self.arguments)
+        self.method.value = d.get('method')
+        self.fields.append(self.method)
 
     @property
     def is_admin(self):
-        return self.login == ADMIN_LOGIN
+        return self.login.value == ADMIN_LOGIN
 
 
 def check_auth(request):
     if request.is_admin:
-        digest = hashlib.sha512(datetime.datetime.now().strftime("%Y%m%d%H") + ADMIN_SALT).hexdigest()
+        string = str(datetime.now().strftime("%Y%m%d%H") + ADMIN_SALT).encode('utf-8')
+        digest = hashlib.sha512(string).hexdigest()
+    elif request.account is None or request.login is None:
+        return False
     else:
-        digest = hashlib.sha512(request.account + request.login + SALT).hexdigest()
-    if digest == request.token:
+        string = str(request.account.value + request.login.value + SALT)
+        digest = hashlib.sha512(string.encode('utf-8')).hexdigest()
+    if digest == request.token.value:
         return True
     return False
 
 
 def online_score_handler(request, ctx, store):
-    return scoring.get_score(store, **request)
+    arguments = request.arguments.value
+    req = OnlineScoreRequest(arguments)
+    validate(req)
+    ctx['has'] = req.has_attrs()
+    return {'score': 42 if request.is_admin else scoring.get_score(store, **arguments)}
 
 
 def clients_interests_handler(request, ctx, store):
-    return scoring.get_interests(store, ctx)
+    result = {}
+    arguments = request.arguments.value
+    req = ClientsInterestsRequest(arguments)
+    validate(req)
+    cnt = ctx['nclients'] = req.count_ids()
+    if cnt > 0:
+        for client_id in req.client_ids.value:
+            result[client_id] = scoring.get_interests(store, client_id)
+    return result
 
 
 def method_handler(request, ctx, store):
-    response, code = None, None
-    method = request['body']['method']
-    logging.info(f"method: {method}")
+    inv_rqst = f"Wrong request: {request}."
+    if not request.get('body'):
+        return inv_rqst, INVALID_REQUEST
+    method_request = MethodRequest(request.get('body'))
     try:
-        response = methods[method](request['body'], ctx, store)
-        code = 200
-    except KeyError:
-        logging.error(f"Handler for method {method} not found.")
-        code = 404
-    except TypeError as e:
-        logging.error(e)
-        code = 422
+        validate(method_request)
+        if not check_auth(method_request):
+            return "Not authorized", FORBIDDEN
+        method = method_request.method.value
+        logging.info(f"method: {method}")
+        response = methods[method](method_request, ctx, store)
+        code = OK
+    except ValueError as ve:
+        response = str(ve)
+        code = INVALID_REQUEST
     except Exception as e:
+        response = inv_rqst
+        logging.error(response)
         logging.error(e)
-        code = 500
+        code = INVALID_REQUEST
 
     return response, code
+
+
+def validate(req):
+    validation_errors = req.check()
+    if validation_errors:
+        raise ValueError(' '.join(validation_errors))
 
 
 methods = {
