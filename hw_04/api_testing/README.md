@@ -1,4 +1,4 @@
-## Scoring API
+## API Testing
 
 ### Краткое описание
 
@@ -10,7 +10,7 @@
 
 ### Запуск тестов
 ```
-python3 -m unittest test/test_api.py
+python3 -m unittest test/test.py
 ```
 
 ### Запуск сервера скоринга
