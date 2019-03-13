@@ -5,7 +5,7 @@ import functools
 import hashlib
 import unittest
 
-import api
+import hw_03.scoring_api.src.api as api
 
 
 def cases(cases):

@@ -3,8 +3,9 @@ import functools
 import hashlib
 import unittest
 import logging
+from unittest.mock import patch
 
-import api2
+import hw_04.api_testing.src.api as api
 
 logging.basicConfig(filename=None, level=logging.INFO,
                     format='[%(asctime)s] %(levelname).1s %(message)s', datefmt='%Y.%m.%d %H:%M:%S')
@@ -29,22 +30,25 @@ class TestSuite(unittest.TestCase):
     def setUp(self):
         self.context = {}
         self.headers = {}
-        self.store = None
 
     def get_response(self, request):
-        return api2.method_handler({"body": request, "headers": self.headers}, self.context, self.store)
+        with patch('hw_04.api_testing.src.store.CachedStore') as MockedStore:
+            cached_store = MockedStore.return_value
+            cached_store.get.return_value = '["football", "computer games"]'
+            cached_store.cache_get.return_value = None
+            return api.method_handler({"body": request, "headers": self.headers}, self.context, cached_store)
 
     def set_valid_auth(self, request):
-        if request.get("login") == api2.ADMIN_LOGIN:
-            string = (datetime.datetime.now().strftime("%Y%m%d%H") + api2.ADMIN_SALT).encode('utf-8')
+        if request.get("login") == api.ADMIN_LOGIN:
+            string = (datetime.datetime.now().strftime("%Y%m%d%H") + api.ADMIN_SALT).encode('utf-8')
             request["token"] = hashlib.sha512(string).hexdigest()
         else:
-            msg = request.get("account", "") + request.get("login", "") + api2.SALT
+            msg = request.get("account", "") + request.get("login", "") + api.SALT
             request["token"] = hashlib.sha512(msg.encode('utf-8')).hexdigest()
 
     def test_empty_request(self):
         _, code = self.get_response({})
-        self.assertEqual(api2.INVALID_REQUEST, code)
+        self.assertEqual(api.INVALID_REQUEST, code)
 
     @cases([
         ({"account": "horns&hoofs", "method": "online_score", "arguments":
@@ -57,7 +61,7 @@ class TestSuite(unittest.TestCase):
     def test_invalid_charfield(self, request, message):
         self.set_valid_auth(request)
         response, code = self.get_response(request)
-        self.assertEqual(api2.INVALID_REQUEST, code)
+        self.assertEqual(api.INVALID_REQUEST, code)
         self.assertEqual(message, response)
 
     @cases([
@@ -74,7 +78,7 @@ class TestSuite(unittest.TestCase):
         request = {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "arguments": arguments}
         self.set_valid_auth(request)
         response, code = self.get_response(request)
-        self.assertEqual(api2.OK, code, arguments)
+        self.assertEqual(api.OK, code, arguments)
         score = response.get("score")
         self.assertTrue(isinstance(score, (int, float)) and score >= 0, arguments)
         self.assertEqual(sorted(self.context["has"]), sorted(arguments.keys()))
@@ -88,7 +92,7 @@ class TestSuite(unittest.TestCase):
         request = {"account": "horns&hoofs", "login": "h&f", "method": "clients_interests", "arguments": arguments}
         self.set_valid_auth(request)
         response, code = self.get_response(request)
-        self.assertEqual(api2.OK, code, arguments)
+        self.assertEqual(api.OK, code, arguments)
         self.assertEqual(len(arguments["client_ids"]), len(response))
         self.assertTrue(all(v and isinstance(v, list) and all(isinstance(i, (str, bytes)) for i in v)
                             for v in response.values()))

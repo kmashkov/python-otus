@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
 import hashlib
 import json
 
@@ -9,7 +12,8 @@ def get_score(store, phone=None, email=None, birthday=None, gender=None, first_n
         phone or "",
         birthday.strftime("%Y%m%d") if birthday is not None else "",
     ]
-    key = "uid:" + hashlib.md5("".join(key_parts)).hexdigest()
+    string = "".join(key_parts).encode('utf-8')
+    key = "uid:" + hashlib.md5(string).hexdigest()
     # try get from cache,
     # fallback to heavy calculation in case of cache miss
     score = store.cache_get(key) or 0

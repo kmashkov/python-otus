@@ -11,7 +11,7 @@ from optparse import OptionParser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime
 
-import scoring
+import hw_03.scoring_api.src.scoring as scoring
 
 SALT = "Otus"
 ADMIN_LOGIN = "admin"

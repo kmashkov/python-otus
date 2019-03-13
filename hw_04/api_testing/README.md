@@ -16,5 +16,5 @@ python3 -m unittest test/test.py
 ### Запуск сервера скоринга
 ```
 cd src/
-python3 api.py [-p <port> -l <log_file_path>]
+python3 api.py [-p <port> -l <log_file_path> -c <store_config_path>]
 ```

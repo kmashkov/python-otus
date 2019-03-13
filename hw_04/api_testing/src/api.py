@@ -11,7 +11,8 @@ from optparse import OptionParser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime
 
-import scoring
+import hw_04.api_testing.src.scoring as scoring
+from hw_04.api_testing.src.store import CachedStore
 
 SALT = "Otus"
 ADMIN_LOGIN = "admin"
@@ -36,6 +37,18 @@ GENDERS = {
     UNKNOWN: "unknown",
     MALE: "male",
     FEMALE: "female",
+}
+STORE_CONFIG = {
+    "store_host": "localhost",
+    "store_port": 6379,
+    "cache_host": "localhost",
+    "cache_port": 11211,
+    "store_db": 1,
+}
+LOGGING_CONFIG = {
+    "level": logging.INFO,
+    "format": "[%(asctime)s] %(levelname).1s %(message)s",
+    "datefmt": "%Y.%m.%d %H:%M:%S",
 }
 
 
@@ -119,8 +132,9 @@ class PhoneField(GeneralField):
             validation_errors.append(f"PhoneField {self.name} must contain 11 digits, starting from 7")
 
 
-class DateField(GeneralField):
+class DateField(CharField):
     def check_value(self, validation_errors):
+        super().check_value(validation_errors)
         match = re.match("^\d{2}\.\d{2}\.\d{4}$", self.value)
         if not match:
             validation_errors.append(f"DateField {self.name} must has pattern DD.MM.YYYY")
@@ -251,7 +265,13 @@ def online_score_handler(request, ctx, store):
     req = OnlineScoreRequest(arguments)
     validate(req)
     ctx['has'] = req.has_attrs()
-    return {'score': 42 if request.is_admin else scoring.get_score(store, **arguments)}
+    phone = str(req.phone.value) if isinstance(req.phone.value, int) else req.phone.value
+    email = req.email.value
+    birthday = datetime.strptime(req.birthday.value, "%d.%m.%Y") if req.birthday.value else None
+    gender = req.gender.value
+    first_name = req.first_name.value
+    last_name = req.last_name.value
+    return {'score': 42 if request.is_admin else scoring.get_score(store, phone, email, birthday, gender, first_name, last_name)}
 
 
 def clients_interests_handler(request, ctx, store):
@@ -307,7 +327,7 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
     router = {
         "method": method_handler
     }
-    store = None
+    store = CachedStore(STORE_CONFIG, LOGGING_CONFIG)
 
     def get_request_id(self, headers):
         return headers.get('HTTP_X_REQUEST_ID', uuid.uuid4().hex)
@@ -351,9 +371,25 @@ if __name__ == "__main__":
     op = OptionParser()
     op.add_option("-p", "--port", action="store", type=int, default=8080)
     op.add_option("-l", "--log", action="store", default=None)
+    op.add_option("-c", "--config", action="store", default=None)
     (opts, args) = op.parse_args()
-    logging.basicConfig(filename=opts.log, level=logging.INFO,
-                        format='[%(asctime)s] %(levelname).1s %(message)s', datefmt='%Y.%m.%d %H:%M:%S')
+    LOGGING_CONFIG["filename"] = opts.log
+    logging.basicConfig(filename=LOGGING_CONFIG.get("filename"), level=LOGGING_CONFIG.get("level"),
+                        format=LOGGING_CONFIG.get("format"), datefmt=LOGGING_CONFIG.get("datefmt"))
+    if opts.config:
+        try:
+            with open(opts.config, 'r', encoding='UTF-8') as config_file:
+                for line in config_file:
+                    line = line.rstrip()
+                    if '=' not in line:
+                        continue
+                    if line.startswith('#'):
+                        continue
+                    k, v = line.split('=', 1)
+                    STORE_CONFIG[k.lower()] = int(v) if v.isdigit() else v
+        except FileNotFoundError:
+            raise FileNotFoundError(f"There is no config file at {opts.config}")
+
     server = HTTPServer(("localhost", opts.port), MainHTTPHandler)
     logging.info("Starting server at %s" % opts.port)
     try:
