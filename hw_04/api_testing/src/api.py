@@ -10,6 +10,7 @@ import uuid
 from optparse import OptionParser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime
+from dateutil.relativedelta import relativedelta
 
 import hw_04.api_testing.src.scoring as scoring
 from hw_04.api_testing.src.store import CachedStore
@@ -53,11 +54,11 @@ LOGGING_CONFIG = {
 
 
 class GeneralField(object):
-    def __init__(self, name, required=False, nullable=True):
+    def __init__(self, name, required=False, nullable=True, value=None):
         self._name = name
         self._required = required
         self._nullable = nullable
-        self._value = None
+        self._value = value
 
     @property
     def name(self):
@@ -108,60 +109,81 @@ class CharField(GeneralField):
     def check_value(self, validation_errors):
         if not isinstance(self.value, str):
             validation_errors.append(f"CharField {self.name} must be a str.")
+            return False
+        return True
 
 
 class ArgumentsField(GeneralField):
     def check_value(self, validation_errors):
         if not isinstance(self.value, dict):
             validation_errors.append(f"ArgumentsField {self.name} must be a dict.")
+            return False
+        return True
 
 
 class EmailField(CharField):
     def check_value(self, validation_errors):
-        super().check_value(validation_errors)
-        if '@' not in self.value:
-            validation_errors.append(f"EmailField {self.name} must contain '@'.")
+        if super().check_value(validation_errors):
+            if '@' not in self.value:
+                validation_errors.append(f"EmailField {self.name} must contain '@'.")
+                return False
+            return True
+        return False
 
 
 class PhoneField(GeneralField):
     def check_value(self, validation_errors):
         if not isinstance(self.value, (str, int)):
             validation_errors.append(f"PhoneField {self.name} must be a str or an int.")
-        match = re.match("^7\d{10}$", self.value if isinstance(self.value, str) else str(self.value))
-        if not match:
-            validation_errors.append(f"PhoneField {self.name} must contain 11 digits, starting from 7")
+            return False
+        else:
+            match = re.match("^7\d{10}$", self.value if isinstance(self.value, str) else str(self.value))
+            if not match:
+                validation_errors.append(f"PhoneField {self.name} must contain 11 digits, starting from 7.")
+                return False
+        return True
 
 
 class DateField(CharField):
     def check_value(self, validation_errors):
-        super().check_value(validation_errors)
-        match = re.match("^\d{2}\.\d{2}\.\d{4}$", self.value)
-        if not match:
-            validation_errors.append(f"DateField {self.name} must has pattern DD.MM.YYYY")
+        if super().check_value(validation_errors):
+            match = re.match("^\d{2}\.\d{2}\.\d{4}$", self.value)
+            if not match:
+                validation_errors.append(f"DateField {self.name} must has pattern DD.MM.YYYY")
+                return False
+            return True
+        return False
 
 
 class BirthDayField(DateField):
     def check_value(self, validation_errors):
-        super().check_value(validation_errors)
-        current_year = datetime.now().year
-        value_year = datetime.strptime(self.value, "%d.%m.%Y").year
-
-        if current_year - value_year > 70:
-            validation_errors.append(f"BirthdayField {self.name} must be less than 70 years ago")
+        if super().check_value(validation_errors):
+            boundary_date = datetime.now() - relativedelta(years=70)
+            value_date = datetime.strptime(self.value, "%d.%m.%Y")
+            if value_date < boundary_date:
+                validation_errors.append(f"BirthdayField {self.name} must be less than 70 years ago.")
+                return False
+            return True
+        return False
 
 
 class GenderField(GeneralField):
     def check_value(self, validation_errors):
         if not isinstance(self.value, int):
             validation_errors.append(f"GenderField {self.name} must be an int.")
+            return False
         if not any(self.value == digit for digit in [0, 1, 2]):
             validation_errors.append(f"GenderField {self.name} must be 0, 1 or 2.")
+            return False
+        return True
 
 
 class ClientIDsField(GeneralField):
     def check_value(self, validation_errors):
         if not isinstance(self.value, list) or not all(isinstance(val, int) for val in self.value):
             validation_errors.append(f"ClientIDsField {self.name} must be a list of int.")
+            return False
+        return True
 
 
 class ClientsInterestsRequest(GeneralRequest):
@@ -271,7 +293,8 @@ def online_score_handler(request, ctx, store):
     gender = req.gender.value
     first_name = req.first_name.value
     last_name = req.last_name.value
-    return {'score': 42 if request.is_admin else scoring.get_score(store, phone, email, birthday, gender, first_name, last_name)}
+    return {'score': 42 if request.is_admin else scoring.get_score(store, phone, email, birthday, gender, first_name,
+                                                                   last_name)}
 
 
 def clients_interests_handler(request, ctx, store):
@@ -296,7 +319,7 @@ def method_handler(request, ctx, store):
         if not check_auth(method_request):
             return "Not authorized", FORBIDDEN
         method = method_request.method.value
-        logging.info(f"method: {method}")
+        logging.debug(f"method: {method}")
         response = methods[method](method_request, ctx, store)
         code = OK
     except ValueError as ve:
