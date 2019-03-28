@@ -2,15 +2,15 @@
 # -*- coding: utf-8 -*-
 
 import abc
+import hashlib
 import json
 import logging
-import hashlib
 import re
 import uuid
-from collections import OrderedDict
-from optparse import OptionParser
-from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from optparse import OptionParser
+
 from dateutil.relativedelta import relativedelta
 
 import hw_03.scoring_api.src.scoring as scoring
@@ -54,56 +54,96 @@ LOGGING_CONFIG = {
 }
 
 
-class GeneralField(metaclass=abc.ABCMeta):
-
-    def __init__(self, name=None, required=False, nullable=True, value=None):
+class GeneralField:
+    def __init__(self, name=None, required=False, nullable=True):
+        super().__init__()
         self._name = name
         self._required = required
         self._nullable = nullable
-        self._value = value
 
     @property
     def name(self):
         return self._name
 
     def __get__(self, obj, owner):
-        return self._value
+        return obj.__dict__[self.name]
 
     def __set__(self, obj, value):
-        self._value = value
+        self.check(value)
+        obj.__dict__[self.name] = value
 
-    def __add__(self, other):
-        if not isinstance(other, self.__class__):
-            return self._value
-        return self._value + other._value
-
-    def __sub__(self, other):
-        if not isinstance(other, self.__class__):
-            return self._value
-        return self._value - other._value
-
-    def __eq__(self, other):
-        if isinstance(other, self.__class__):
-            return self._value == other._value
-        if isinstance(other, self._value.__class__):
-            return self._value == other
-        return False
-
-    def __hash__(self):
-        return hash(self._value)
-
-    def check(self, validation_errors):
-            if self._required and self._value is None:
-                validation_errors.append(f"Field {self.name} must be presented in request")
-            if not self._nullable and not self._value:
-                validation_errors.append(f"Field {self.name} can't be empty.")
-            if self._value:
-                self.check_value(validation_errors)
-            return validation_errors
+    def check(self, value):
+            if self._required and value is None:
+                raise ValueError(f"Field {self.name} must be presented in request")
+            if not self._nullable and not value:
+                raise ValueError(f"Field {self.name} can't be empty.")
+            if value:
+                self.check_value(value)
+            return True
 
     @abc.abstractmethod
-    def check_value(self, validation_errors):
+    def check_value(self, value):
         raise NotImplementedError
+
+
+class CharField(GeneralField):
+    def check_value(self, value):
+        if not isinstance(value, str):
+            raise ValueError(f"CharField {self.name} must be a str.")
+
+
+class ArgumentsField(GeneralField):
+    def check_value(self, value):
+        if not isinstance(value, dict):
+            raise ValueError(f"ArgumentsField {self.name} must be a dict.")
+
+
+class EmailField(CharField):
+    def check_value(self, value):
+        super().check_value(value)
+        if '@' not in value:
+            raise ValueError(f"EmailField {self.name} must contain '@'.")
+
+
+class PhoneField(GeneralField):
+    def check_value(self, value):
+        if not isinstance(value, (str, int)):
+            raise ValueError(f"PhoneField {self.name} must be a str or an int.")
+        else:
+            match = re.match("^7\d{10}$", value if isinstance(value, str) else str(value))
+            if not match:
+                raise ValueError(f"PhoneField {self.name} must contain 11 digits, starting from 7.")
+
+
+class DateField(CharField):
+    def check_value(self, value):
+        super().check_value(value)
+        match = re.match("^\d{2}\.\d{2}\.\d{4}$", value)
+        if not match:
+            raise ValueError(f"DateField {self.name} must has pattern DD.MM.YYYY")
+
+
+class BirthDayField(DateField):
+    def check_value(self, value):
+        super().check_value(value)
+        boundary_date = datetime.now() - relativedelta(years=70)
+        value_date = datetime.strptime(value, "%d.%m.%Y")
+        if value_date < boundary_date:
+            raise ValueError(f"BirthdayField {self.name} must be less than 70 years ago.")
+
+
+class GenderField(GeneralField):
+    def check_value(self, value):
+        if not isinstance(value, int):
+            raise ValueError(f"GenderField {self.name} must be an int.")
+        if not any(value == digit for digit in [UNKNOWN, MALE, FEMALE]):
+            raise ValueError(f"GenderField {self.name} must be 0, 1 or 2.")
+
+
+class ClientIDsField(GeneralField):
+    def check_value(self, value):
+        if not isinstance(value, list) or not all(isinstance(val, int) for val in value):
+            raise ValueError(f"ClientIDsField {self.name} must be a list of int.")
 
 
 class DeclarativeFieldsMetaclass(type):
@@ -112,28 +152,22 @@ class DeclarativeFieldsMetaclass(type):
     """
     def __new__(mcs, name, bases, attrs):
         # Collect fields from current class.
-        current_fields = []
+        current_fields = {}
         for key, value in list(attrs.items()):
             if isinstance(value, GeneralField):
                 value._name = key
-                current_fields.append((key, value))
+                current_fields[key] = value
                 attrs.pop(key)
-        attrs['declared_fields'] = OrderedDict(current_fields)
+        attrs['declared_fields'] = current_fields
 
-        new_class = (super(DeclarativeFieldsMetaclass, mcs)
-                     .__new__(mcs, name, bases, attrs))
+        new_class = (super(DeclarativeFieldsMetaclass, mcs).__new__(mcs, name, bases, attrs))
 
         # Walk through the MRO.
-        declared_fields = OrderedDict()
+        declared_fields = {}
         for base in reversed(new_class.__mro__):
             # Collect fields from base class.
             if hasattr(base, 'declared_fields'):
-                declared_fields.update(base.declared_fields)
-
-            # Field shadowing.
-            for attr, value in base.__dict__.items():
-                if value is None and attr in declared_fields:
-                    declared_fields.pop(attr)
+                declared_fields = {**base.declared_fields}
 
         new_class.declared_fields = declared_fields
 
@@ -142,98 +176,13 @@ class DeclarativeFieldsMetaclass(type):
 
 class GeneralRequest(metaclass=DeclarativeFieldsMetaclass):
     def __init__(self, d):
-        for key, value in d.items():
-            self.declared_fields[key]._value = value
-
-    def __getattr__(self, item):
-        return self.declared_fields.get(item)
+        if d and isinstance(d, dict):
+            for key in self.declared_fields.keys():
+                self.declared_fields.get(key).__set__(self, d.get(key))
+        self.check()
 
     def check(self):
-        validation_errors = []
-        for _ in self.declared_fields.values():
-            _.check(validation_errors)
-        return validation_errors
-
-
-class CharField(GeneralField):
-    def check_value(self, validation_errors):
-        if not isinstance(self._value, str):
-            validation_errors.append(f"CharField {self.name} must be a str.")
-            return False
-        return True
-
-
-class ArgumentsField(GeneralField):
-    def check_value(self, validation_errors):
-        if not isinstance(self._value, dict):
-            validation_errors.append(f"ArgumentsField {self.name} must be a dict.")
-            return False
-        return True
-
-
-class EmailField(CharField):
-    def check_value(self, validation_errors):
-        if super().check_value(validation_errors):
-            if '@' not in self._value:
-                validation_errors.append(f"EmailField {self.name} must contain '@'.")
-                return False
-            return True
-        return False
-
-
-class PhoneField(GeneralField):
-    def check_value(self, validation_errors):
-        if not isinstance(self._value, (str, int)):
-            validation_errors.append(f"PhoneField {self.name} must be a str or an int.")
-            return False
-        else:
-            match = re.match("^7\d{10}$", self._value if isinstance(self._value, str) else str(self._value))
-            if not match:
-                validation_errors.append(f"PhoneField {self.name} must contain 11 digits, starting from 7.")
-                return False
-        return True
-
-
-class DateField(CharField):
-    def check_value(self, validation_errors):
-        if super().check_value(validation_errors):
-            match = re.match("^\d{2}\.\d{2}\.\d{4}$", self._value)
-            if not match:
-                validation_errors.append(f"DateField {self.name} must has pattern DD.MM.YYYY")
-                return False
-            return True
-        return False
-
-
-class BirthDayField(DateField):
-    def check_value(self, validation_errors):
-        if super().check_value(validation_errors):
-            boundary_date = datetime.now() - relativedelta(years=70)
-            value_date = datetime.strptime(self._value, "%d.%m.%Y")
-            if value_date < boundary_date:
-                validation_errors.append(f"BirthdayField {self.name} must be less than 70 years ago.")
-                return False
-            return True
-        return False
-
-
-class GenderField(GeneralField):
-    def check_value(self, validation_errors):
-        if not isinstance(self._value, int):
-            validation_errors.append(f"GenderField {self.name} must be an int.")
-            return False
-        if not any(self._value == digit for digit in [0, 1, 2]):
-            validation_errors.append(f"GenderField {self.name} must be 0, 1 or 2.")
-            return False
-        return True
-
-
-class ClientIDsField(GeneralField):
-    def check_value(self, validation_errors):
-        if not isinstance(self._value, list) or not all(isinstance(val, int) for val in self._value):
-            validation_errors.append(f"ClientIDsField {self.name} must be a list of int.")
-            return False
-        return True
+        pass
 
 
 class ClientsInterestsRequest(GeneralRequest):
@@ -256,18 +205,18 @@ class OnlineScoreRequest(GeneralRequest):
 
     def has_attrs(self):
         attrs = []
-        for _ in self.declared_fields:
-            attrs.append(_.name)
+        for _ in self.declared_fields.values():
+            if self.__dict__.get(_.name) is not None:
+                attrs.append(_.name)
         return attrs
 
     def check(self):
-        validation_errors = super().check()
+        super().check()
         if not ((self.phone and self.email) or
                 (self.first_name and self.last_name) or
                 (self.gender is not None and self.birthday)):
-            validation_errors.append(
+            raise ValueError(
                 'Some of the pairs phone‑email, first_name‑last_name or gender‑birthday must be filled')
-        return validation_errors
 
 
 class MethodRequest(GeneralRequest):
@@ -297,8 +246,7 @@ def check_auth(request):
 
 
 def online_score_handler(request, ctx, store):
-    req = OnlineScoreRequest(request.arguments._value)
-    validate(req)
+    req = OnlineScoreRequest(request.arguments)
     ctx['has'] = req.has_attrs()
     phone = str(req.phone) if isinstance(req.phone, int) else req.phone
     email = req.email
@@ -312,8 +260,7 @@ def online_score_handler(request, ctx, store):
 
 def clients_interests_handler(request, ctx, store):
     result = {}
-    req = ClientsInterestsRequest(request.arguments._value)
-    validate(req)
+    req = ClientsInterestsRequest(request.arguments)
     cnt = ctx['nclients'] = req.count_ids()
     if cnt > 0:
         for client_id in req.client_ids:
@@ -325,9 +272,8 @@ def method_handler(request, ctx, store):
     inv_rqst = f"Wrong request: {request}."
     if not request.get('body'):
         return inv_rqst, INVALID_REQUEST
-    method_request = MethodRequest(request.get('body'))
     try:
-        validate(method_request)
+        method_request = MethodRequest(request.get('body'))
         if not check_auth(method_request):
             return "Not authorized", FORBIDDEN
         method = method_request.method
@@ -344,12 +290,6 @@ def method_handler(request, ctx, store):
         code = INVALID_REQUEST
 
     return response, code
-
-
-def validate(req):
-    validation_errors = req.check()
-    if validation_errors:
-        raise ValueError(' '.join(validation_errors))
 
 
 methods = {
@@ -371,13 +311,14 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
         response, code = {}, OK
         context = {"request_id": self.get_request_id(self.headers)}
         request = None
+        data_string = None
         try:
             data_string = self.rfile.read(int(self.headers['Content-Length']))
             request = json.loads(data_string)
         except:
             code = BAD_REQUEST
 
-        if request:
+        if request and data_string:
             path = self.path.strip("/")
             logging.info("%s: %s %s" % (self.path, data_string, context["request_id"]))
             if path in self.router:
