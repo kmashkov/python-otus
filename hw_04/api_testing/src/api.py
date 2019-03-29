@@ -2,17 +2,19 @@
 # -*- coding: utf-8 -*-
 
 import abc
+import hashlib
 import json
 import logging
-import hashlib
 import re
 import uuid
-from optparse import OptionParser
-from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from optparse import OptionParser
+
 from dateutil.relativedelta import relativedelta
 
-import hw_03.scoring_api.src.scoring as scoring
+import hw_04.api_testing.src.scoring as scoring
+from hw_04.api_testing.src.store import CachedStore
 
 SALT = "Otus"
 ADMIN_LOGIN = "admin"
@@ -38,11 +40,22 @@ GENDERS = {
     MALE: "male",
     FEMALE: "female",
 }
+STORE_CONFIG = {
+    "store_host": "localhost",
+    "store_port": 6379,
+    "store_db": 1,
+    "cache_host": "localhost",
+    "cache_port": 11211,
+}
+LOGGING_CONFIG = {
+    "level": logging.INFO,
+    "format": "[%(asctime)s] %(levelname).1s %(message)s",
+    "datefmt": "%Y.%m.%d %H:%M:%S",
+}
 
 
 class GeneralField:
     def __init__(self, name=None, required=False, nullable=True):
-        super().__init__()
         self._name = name
         self._required = required
         self._nullable = nullable
@@ -59,13 +72,13 @@ class GeneralField:
         obj.__dict__[self.name] = value
 
     def check(self, value):
-        if self._required and value is None:
-            raise ValueError(f"Field {self.name} must be presented in request")
-        if not self._nullable and not value:
-            raise ValueError(f"Field {self.name} can't be empty.")
-        if value:
-            self.check_value(value)
-        return True
+            if self._required and value is None:
+                raise ValueError(f"Field {self.name} must be presented in request")
+            if not self._nullable and not value:
+                raise ValueError(f"Field {self.name} can't be empty.")
+            if value:
+                self.check_value(value)
+            return True
 
     @abc.abstractmethod
     def check_value(self, value):
@@ -254,7 +267,7 @@ def clients_interests_handler(request, ctx, store):
     return result
 
 
-def method_handler(request, ctx, store):
+def method_handler(request, ctx, store=CachedStore(STORE_CONFIG, LOGGING_CONFIG)):
     inv_rqst = f"Wrong request: {request}."
     if not request.get('body'):
         return inv_rqst, INVALID_REQUEST
@@ -288,7 +301,6 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
     router = {
         "method": method_handler
     }
-    store = None
 
     def get_request_id(self, headers):
         return headers.get('HTTP_X_REQUEST_ID', uuid.uuid4().hex)
@@ -309,7 +321,7 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
             logging.info("%s: %s %s" % (self.path, data_string, context["request_id"]))
             if path in self.router:
                 try:
-                    response, code = self.router[path]({"body": request, "headers": self.headers}, context, self.store)
+                    response, code = self.router[path]({"body": request, "headers": self.headers}, context)
                 except Exception as e:
                     logging.exception("Unexpected error: %s" % e)
                     code = INTERNAL_ERROR
@@ -333,9 +345,25 @@ if __name__ == "__main__":
     op = OptionParser()
     op.add_option("-p", "--port", action="store", type=int, default=8080)
     op.add_option("-l", "--log", action="store", default=None)
+    op.add_option("-c", "--config", action="store", default=None)
     (opts, args) = op.parse_args()
-    logging.basicConfig(filename=opts.log, level=logging.INFO,
-                        format='[%(asctime)s] %(levelname).1s %(message)s', datefmt='%Y.%m.%d %H:%M:%S')
+    LOGGING_CONFIG["filename"] = opts.log
+    logging.basicConfig(filename=LOGGING_CONFIG.get("filename"), level=LOGGING_CONFIG.get("level"),
+                        format=LOGGING_CONFIG.get("format"), datefmt=LOGGING_CONFIG.get("datefmt"))
+    if opts.config:
+        try:
+            with open(opts.config, 'r', encoding='UTF-8') as config_file:
+                for line in config_file:
+                    line = line.rstrip()
+                    if '=' not in line:
+                        continue
+                    if line.startswith('#'):
+                        continue
+                    k, v = line.split('=', 1)
+                    STORE_CONFIG[k.lower()] = int(v) if v.isdigit() else v
+        except FileNotFoundError:
+            raise FileNotFoundError(f"There is no config file at {opts.config}")
+
     server = HTTPServer(("localhost", opts.port), MainHTTPHandler)
     logging.info("Starting server at %s" % opts.port)
     try:
