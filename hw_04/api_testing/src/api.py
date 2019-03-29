@@ -13,8 +13,8 @@ from optparse import OptionParser
 
 from dateutil.relativedelta import relativedelta
 
-import hw_03.scoring_api.src.scoring as scoring
-from store import CachedStore
+import hw_04.api_testing.src.scoring as scoring
+from hw_04.api_testing.src.store import CachedStore
 
 SALT = "Otus"
 ADMIN_LOGIN = "admin"
@@ -43,9 +43,9 @@ GENDERS = {
 STORE_CONFIG = {
     "store_host": "localhost",
     "store_port": 6379,
+    "store_db": 1,
     "cache_host": "localhost",
     "cache_port": 11211,
-    "store_db": 1,
 }
 LOGGING_CONFIG = {
     "level": logging.INFO,
@@ -56,7 +56,6 @@ LOGGING_CONFIG = {
 
 class GeneralField:
     def __init__(self, name=None, required=False, nullable=True):
-        super().__init__()
         self._name = name
         self._required = required
         self._nullable = nullable
@@ -268,7 +267,7 @@ def clients_interests_handler(request, ctx, store):
     return result
 
 
-def method_handler(request, ctx, store):
+def method_handler(request, ctx, store=CachedStore(STORE_CONFIG, LOGGING_CONFIG)):
     inv_rqst = f"Wrong request: {request}."
     if not request.get('body'):
         return inv_rqst, INVALID_REQUEST
@@ -302,7 +301,6 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
     router = {
         "method": method_handler
     }
-    store = CachedStore(STORE_CONFIG, LOGGING_CONFIG)
 
     def get_request_id(self, headers):
         return headers.get('HTTP_X_REQUEST_ID', uuid.uuid4().hex)
@@ -323,7 +321,7 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
             logging.info("%s: %s %s" % (self.path, data_string, context["request_id"]))
             if path in self.router:
                 try:
-                    response, code = self.router[path]({"body": request, "headers": self.headers}, context, self.store)
+                    response, code = self.router[path]({"body": request, "headers": self.headers}, context)
                 except Exception as e:
                     logging.exception("Unexpected error: %s" % e)
                     code = INTERNAL_ERROR

@@ -1,8 +1,8 @@
 import datetime
 import functools
 import hashlib
-import unittest
 import logging
+import unittest
 from unittest.mock import patch
 
 import hw_04.api_testing.src.api as api
@@ -46,10 +46,6 @@ class TestSuite(unittest.TestCase):
             msg = request.get("account", "") + request.get("login", "") + api.SALT
             request["token"] = hashlib.sha512(msg.encode('utf-8')).hexdigest()
 
-    def test_empty_request(self):
-        _, code = self.get_response({})
-        self.assertEqual(api.INVALID_REQUEST, code)
-
     @cases([
         ({"account": "horns&hoofs", "method": "online_score", "arguments":
             {"first_name": "a", "last_name": "b"}}, "Field login must be presented in request"),
@@ -66,7 +62,7 @@ class TestSuite(unittest.TestCase):
 
     @cases([
         ({"account": "horns&hoofs", "login": "h&f", "method": "online_score"},
-            "Field arguments must be presented in request"),
+         "Field arguments must be presented in request"),
         ({"account": "horns&hoofs", "login": "h&f", "method": "online_score", "arguments":
             ['a', "b"]}, "ArgumentsField arguments must be a dict."),
         ({"account": "horns&hoofs", "login": "h&f", "method": "online_score", "arguments":
@@ -94,34 +90,34 @@ class TestSuite(unittest.TestCase):
 
     @cases([
         (
-            {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "arguments":
-                {"phone": 7917500.2040, "email": "stupnikov@otus.ru"}},
-            "PhoneField phone must be a str or an int."
+                {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "arguments":
+                    {"phone": 7917500.2040, "email": "stupnikov@otus.ru"}},
+                "PhoneField phone must be a str or an int."
         ),
         (
-            {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "arguments":
-                {"phone": [79175002040], "email": "stupnikov@otus.ru"}},
-            "PhoneField phone must be a str or an int."
+                {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "arguments":
+                    {"phone": [79175002040], "email": "stupnikov@otus.ru"}},
+                "PhoneField phone must be a str or an int."
         ),
         (
-            {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "arguments":
-                {"phone": "89175002040", "email": "stupnikov@otus.ru"}},
-            "PhoneField phone must contain 11 digits, starting from 7."
+                {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "arguments":
+                    {"phone": "89175002040", "email": "stupnikov@otus.ru"}},
+                "PhoneField phone must contain 11 digits, starting from 7."
         ),
         (
-            {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "arguments":
-                {"phone": 89175002040, "email": "stupnikov@otus.ru"}},
-            "PhoneField phone must contain 11 digits, starting from 7."
+                {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "arguments":
+                    {"phone": 89175002040, "email": "stupnikov@otus.ru"}},
+                "PhoneField phone must contain 11 digits, starting from 7."
         ),
         (
-            {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "arguments":
-                {"phone": "791750020", "email": "stupnikov@otus.ru"}},
-            "PhoneField phone must contain 11 digits, starting from 7."
+                {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "arguments":
+                    {"phone": "791750020", "email": "stupnikov@otus.ru"}},
+                "PhoneField phone must contain 11 digits, starting from 7."
         ),
         (
-            {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "arguments":
-                {"phone": 9175002040, "email": "stupnikov@otus.ru"}},
-            "PhoneField phone must contain 11 digits, starting from 7."
+                {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "arguments":
+                    {"phone": 9175002040, "email": "stupnikov@otus.ru"}},
+                "PhoneField phone must contain 11 digits, starting from 7."
         ),
     ])
     def test_invalid_phone_field(self, request, expected):
@@ -189,40 +185,6 @@ class TestSuite(unittest.TestCase):
         response, code = self.get_response(request)
         self.assertEqual(api.INVALID_REQUEST, code)
         self.assertEqual(expected, response)
-
-    @cases([
-        {"phone": "79175002040", "email": "stupnikov@otus.ru"},
-        {"phone": 79175002040, "email": "stupnikov@otus.ru"},
-        {"gender": 1, "birthday": "01.01.2000", "first_name": "a", "last_name": "b"},
-        {"gender": 0, "birthday": "01.01.2000"},
-        {"gender": 2, "birthday": "01.01.2000"},
-        {"first_name": "a", "last_name": "b"},
-        {"phone": "79175002040", "email": "stupnikov@otus.ru", "gender": 1, "birthday": "01.01.2000",
-         "first_name": "a", "last_name": "b"},
-    ])
-    def test_ok_score_request(self, arguments):
-        request = {"account": "horns&hoofs", "login": "h&f", "method": "online_score", "arguments": arguments}
-        self.set_valid_auth(request)
-        response, code = self.get_response(request)
-        self.assertEqual(api.OK, code, arguments)
-        score = response.get("score")
-        self.assertTrue(isinstance(score, (int, float)) and score >= 0, arguments)
-        self.assertEqual(sorted(self.context["has"]), sorted(arguments.keys()))
-
-    @cases([
-        {"client_ids": [1, 2, 3], "date": datetime.datetime.today().strftime("%d.%m.%Y")},
-        {"client_ids": [1, 2], "date": "19.07.2017"},
-        {"client_ids": [0]},
-    ])
-    def test_ok_interests_request(self, arguments):
-        request = {"account": "horns&hoofs", "login": "h&f", "method": "clients_interests", "arguments": arguments}
-        self.set_valid_auth(request)
-        response, code = self.get_response(request)
-        self.assertEqual(api.OK, code, arguments)
-        self.assertEqual(len(arguments["client_ids"]), len(response))
-        self.assertTrue(all(v and isinstance(v, list) and all(isinstance(i, (str, bytes)) for i in v)
-                            for v in response.values()))
-        self.assertEqual(self.context.get("nclients"), len(arguments["client_ids"]))
 
 
 if __name__ == "__main__":

@@ -18,7 +18,7 @@ def get_score(store, phone=None, email=None, birthday=None, gender=None, first_n
     # fallback to heavy calculation in case of cache miss
     score = store.cache_get(key) or 0
     if score:
-        return score
+        return float(score)
     if phone:
         score += 1.5
     if email:
@@ -33,5 +33,5 @@ def get_score(store, phone=None, email=None, birthday=None, gender=None, first_n
 
 
 def get_interests(store, cid):
-    r = store.get("i:%s" % cid)
+    r = store.cache_get("i:%s" % cid)
     return json.loads(r) if r else []
