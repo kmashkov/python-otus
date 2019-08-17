@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import uuid
+from abc import ABCMeta
 from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from optparse import OptionParser
@@ -54,7 +55,7 @@ LOGGING_CONFIG = {
 }
 
 
-class GeneralField:
+class GeneralField(metaclass=ABCMeta):
     def __init__(self, name=None, required=False, nullable=True):
         self._name = name
         self._required = required
@@ -135,7 +136,7 @@ class GenderField(GeneralField):
     def check_value(self, value):
         if not isinstance(value, int):
             raise ValueError(f"GenderField {self.name} must be an int.")
-        if not any(value == digit for digit in [UNKNOWN, MALE, FEMALE]):
+        if value not in [UNKNOWN, MALE, FEMALE]:
             raise ValueError(f"GenderField {self.name} must be 0, 1 or 2.")
 
 
@@ -145,43 +146,64 @@ class ClientIDsField(GeneralField):
             raise ValueError(f"ClientIDsField {self.name} must be a list of int.")
 
 
-class DeclarativeFieldsMetaclass(type):
+class DeclarativeFieldsMetaclass(type, metaclass=ABCMeta):
     """
     Metaclass that collects Fields declared on the base classes.
     """
     def __new__(mcs, name, bases, attrs):
         # Collect fields from current class.
-        current_fields = {}
+        current_field_names = set()
         for key, value in list(attrs.items()):
             if isinstance(value, GeneralField):
                 value._name = key
-                current_fields[key] = value
-                attrs.pop(key)
-        attrs['declared_fields'] = current_fields
+                current_field_names.add(key)
+        attrs['declared_field_names'] = current_field_names
 
         new_class = (super(DeclarativeFieldsMetaclass, mcs).__new__(mcs, name, bases, attrs))
 
         # Walk through the MRO.
-        declared_fields = {}
+        declared_field_names = set()
         for base in reversed(new_class.__mro__):
             # Collect fields from base class.
-            if hasattr(base, 'declared_fields'):
-                declared_fields = {**base.declared_fields}
+            if hasattr(base, 'declared_field_names'):
+                declared_field_names.union(set(base.declared_field_names))
 
-        new_class.declared_fields = declared_fields
+        new_class.declared_field_names.union(declared_field_names)
 
         return new_class
 
 
 class GeneralRequest(metaclass=DeclarativeFieldsMetaclass):
     def __init__(self, d):
-        if d and isinstance(d, dict):
-            for key in self.declared_fields.keys():
-                self.declared_fields.get(key).__set__(self, d.get(key))
-        self.check()
+        self.validation_errors = []
+        if not d:
+            self.validation_errors.append('Request is empty.')
+        if isinstance(d, dict):
+            for name in self.declared_field_names:
+                try:
+                    setattr(self, name, d.get(name))
+                except ValueError as e:
+                    self.validation_errors.append(*e.args)
+        if not self.validation_errors:
+            self.check()
 
     def check(self):
         pass
+
+    def has_errors(self):
+        return bool(self.validation_errors)
+
+
+class MethodRequest(GeneralRequest):
+    account = CharField(required=False, nullable=True)
+    login = CharField(required=True, nullable=True)
+    token = CharField(required=True, nullable=True)
+    arguments = ArgumentsField(required=True, nullable=True)
+    method = CharField(required=True, nullable=False)
+
+    @property
+    def is_admin(self):
+        return self.login == ADMIN_LOGIN
 
 
 class ClientsInterestsRequest(GeneralRequest):
@@ -204,30 +226,18 @@ class OnlineScoreRequest(GeneralRequest):
 
     def has_attrs(self):
         attrs = []
-        for _ in self.declared_fields.values():
-            if self.__dict__.get(_.name) is not None:
-                attrs.append(_.name)
+        for name in self.declared_field_names:
+            if self.__dict__.get(name) is not None:
+                attrs.append(name)
         return attrs
 
     def check(self):
-        super().check()
+        self.validation_errors = super().check()
         if not ((self.phone and self.email) or
                 (self.first_name and self.last_name) or
                 (self.gender is not None and self.birthday)):
-            raise ValueError(
+            self.validation_errors.append(
                 'Some of the pairs phone‑email, first_name‑last_name or gender‑birthday must be filled')
-
-
-class MethodRequest(GeneralRequest):
-    account = CharField(required=False, nullable=True)
-    login = CharField(required=True, nullable=True)
-    token = CharField(required=True, nullable=True)
-    arguments = ArgumentsField(required=True, nullable=True)
-    method = CharField(required=True, nullable=False)
-
-    @property
-    def is_admin(self):
-        return self.login == ADMIN_LOGIN
 
 
 def check_auth(request):
@@ -246,6 +256,8 @@ def check_auth(request):
 
 def online_score_handler(request, ctx, store):
     req = OnlineScoreRequest(request.arguments)
+    if req.has_errors():
+        return req.validation_errors, INVALID_REQUEST
     ctx['has'] = req.has_attrs()
     phone = str(req.phone) if isinstance(req.phone, int) else req.phone
     email = req.email
@@ -254,17 +266,19 @@ def online_score_handler(request, ctx, store):
     first_name = req.first_name
     last_name = req.last_name
     return {'score': 42 if request.is_admin else scoring.get_score(store, phone, email, birthday, gender, first_name,
-                                                                   last_name)}
+                                                                   last_name)}, OK
 
 
 def clients_interests_handler(request, ctx, store):
-    result = {}
+    response = {}
     req = ClientsInterestsRequest(request.arguments)
+    if req.has_errors():
+        return req.validation_errors, INVALID_REQUEST
     cnt = ctx['nclients'] = req.count_ids()
     if cnt > 0:
         for client_id in req.client_ids:
-            result[client_id] = scoring.get_interests(store, client_id)
-    return result
+            response[client_id] = scoring.get_interests(store, client_id)
+    return response, OK
 
 
 def method_handler(request, ctx, store=CachedStore(STORE_CONFIG, LOGGING_CONFIG)):
@@ -273,21 +287,17 @@ def method_handler(request, ctx, store=CachedStore(STORE_CONFIG, LOGGING_CONFIG)
         return inv_rqst, INVALID_REQUEST
     try:
         method_request = MethodRequest(request.get('body'))
+        if method_request.has_errors():
+            return method_request.validation_errors, INVALID_REQUEST
         if not check_auth(method_request):
             return "Not authorized", FORBIDDEN
         method = method_request.method
         logging.debug(f"method: {method}")
-        response = methods[method](method_request, ctx, store)
-        code = OK
-    except ValueError as ve:
-        response = str(ve)
-        code = INVALID_REQUEST
+        response, code = methods[method](method_request, ctx, store)
     except Exception as e:
-        response = inv_rqst
+        response, code = inv_rqst, INVALID_REQUEST
         logging.error(response)
         logging.error(e)
-        code = INVALID_REQUEST
-
     return response, code
 
 
