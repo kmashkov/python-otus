@@ -61,7 +61,7 @@ class GeneralField(metaclass=ABCMeta):
     def check(self, value):
             if self._required and value is None:
                 raise ValueError(f"Field {self.name} must be presented in request")
-            if not self._nullable and not value:
+            if not self._nullable and value in ['', None, [], {}]:
                 raise ValueError(f"Field {self.name} can't be empty.")
             if value:
                 self.check_value(value)
