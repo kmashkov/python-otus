@@ -9,9 +9,9 @@ from unittest.mock import patch, call, MagicMock, Mock
 import redis
 from pymemcache.client import base
 
-import hw_04.api_testing.src.api as api
-from hw_04.api_testing.src.store import CachedStore
-from hw_04.api_testing.test.utils import cases
+import hw_03_2.api_testing.src.api as api
+from hw_03_2.api_testing.src.store import CachedStore
+from hw_03_2.api_testing.test.utils import cases
 
 REAL_STORE_CONFIG = {
             "store_host": os.environ.get('store_host'),

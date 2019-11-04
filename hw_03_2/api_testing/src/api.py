@@ -14,8 +14,8 @@ from optparse import OptionParser
 
 from dateutil.relativedelta import relativedelta
 
-import hw_04.api_testing.src.scoring as scoring
-from hw_04.api_testing.src.store import CachedStore
+import hw_03_2.api_testing.src.scoring as scoring
+from hw_03_2.api_testing.src.store import CachedStore
 
 SALT = "Otus"
 ADMIN_LOGIN = "admin"

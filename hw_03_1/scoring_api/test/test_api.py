@@ -1,47 +1,32 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 import datetime
+import functools
 import hashlib
-import logging
 import unittest
 
-import redis
-from pymemcache.client import base
+import hw_03_1.scoring_api.src.api as api
 
-import hw_04.api_testing.src.api as api
-from hw_04.api_testing.src.store import CachedStore
-from hw_04.api_testing.test.utils import cases
 
-logging.basicConfig(filename=None, level=logging.INFO,
-                    format='[%(asctime)s] %(levelname).1s %(message)s', datefmt='%Y.%m.%d %H:%M:%S')
-
-STORE_CONFIG = {
-    "store_host": "localhost",
-    "store_port": 6379,
-    "store_db": 1,
-    "cache_host": "localhost",
-    "cache_port": 11211,
-}
+def cases(cases):
+    def decorator(f):
+        @functools.wraps(f)
+        def wrapper(*args):
+            for c in cases:
+                new_args = args + (c if isinstance(c, tuple) else (c,))
+                f(*new_args)
+        return wrapper
+    return decorator
 
 
 class TestSuite(unittest.TestCase):
-
     def setUp(self):
         self.context = {}
         self.headers = {}
-        store_config = STORE_CONFIG
-        self.db = redis.StrictRedis(host=store_config.get('store_host'), port=store_config.get('store_port'),
-                                    db=store_config.get('store_db'), socket_timeout=15, socket_connect_timeout=45)
-        self.db.set('i:0', '["football", "computer games"]')
-        self.db.set('i:1', '["football", "computer games"]')
-        self.db.set('i:2', '["football", "computer games"]')
-        self.db.set('i:3', '["football", "computer games"]')
+        self.settings = {}
 
-        self.cache = base.Client((store_config.get('cache_host'), store_config.get('cache_port')), timeout=15,
-                                 connect_timeout=45)
-        self.cache.set('i:0', '["football", "computer games"]')
-
-    def get_response(self, request, store=None):
-        return api.method_handler({"body": request, "headers": self.headers}, self.context) if store is None else \
-            api.method_handler({"body": request, "headers": self.headers}, self.context, store)
+    def get_response(self, request):
+        return api.method_handler({"body": request, "headers": self.headers}, self.context, self.settings)
 
     def set_valid_auth(self, request):
         if request.get("login") == api.ADMIN_LOGIN:
@@ -153,47 +138,6 @@ class TestSuite(unittest.TestCase):
         self.assertEqual(len(arguments["client_ids"]), len(response))
         self.assertTrue(all(v and isinstance(v, list) and all(isinstance(i, (str, bytes)) for i in v)
                         for v in response.values()))
-        self.assertEqual(self.context.get("nclients"), len(arguments["client_ids"]))
-
-    @cases([
-        {"client_ids": [1, 2, 3], "date": datetime.datetime.today().strftime("%d.%m.%Y")},
-        {"client_ids": [1, 2], "date": "19.07.2017"},
-        {"client_ids": [0]},
-    ])
-    def test_ok_interests_request_db_is_not_available(self, arguments):
-        request = {"account": "horns&hoofs", "login": "h&f", "method": "clients_interests", "arguments": arguments}
-        self.set_valid_auth(request)
-        self.cache.set('i:1', '["football", "computer games"]')
-        self.cache.set('i:2', '["football", "computer games"]')
-        self.cache.set('i:3', '["football", "computer games"]')
-        STORE_CONFIG['store_port'] = 1111
-        wrong_store = CachedStore(STORE_CONFIG, api.LOGGING_CONFIG)
-        response, code = self.get_response(request, wrong_store)
-        self.assertEqual(api.OK, code, arguments)
-        self.assertEqual(len(arguments["client_ids"]), len(response))
-        self.assertTrue(all(v and isinstance(v, list) and all(isinstance(i, (str, bytes)) for i in v)
-                            for v in response.values()))
-        self.assertEqual(self.context.get("nclients"), len(arguments["client_ids"]))
-
-    @cases([
-        {"client_ids": [1, 2, 3], "date": datetime.datetime.today().strftime("%d.%m.%Y")},
-        {"client_ids": [1, 2], "date": "19.07.2017"},
-        {"client_ids": [0]},
-    ])
-    def test_ok_interests_request_cache_is_not_available(self, arguments):
-        request = {"account": "horns&hoofs", "login": "h&f", "method": "clients_interests", "arguments": arguments}
-        self.set_valid_auth(request)
-        self.cache.set('i:1', '["football", "computer games"]')
-        self.cache.set('i:2', '["football", "computer games"]')
-        self.cache.set('i:3', '["football", "computer games"]')
-        STORE_CONFIG['store_port'] = 6379
-        STORE_CONFIG['cache_port'] = 1111
-        wrong_store = CachedStore(STORE_CONFIG, api.LOGGING_CONFIG)
-        response, code = self.get_response(request, wrong_store)
-        self.assertEqual(api.OK, code, arguments)
-        self.assertEqual(len(arguments["client_ids"]), len(response))
-        self.assertTrue(all(v and isinstance(v, list) and all(isinstance(i, (str, bytes)) for i in v)
-                            for v in response.values()))
         self.assertEqual(self.context.get("nclients"), len(arguments["client_ids"]))
 
 

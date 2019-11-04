@@ -2,8 +2,8 @@ import datetime
 import logging
 import unittest
 
-import hw_04.api_testing.src.api as api
-from hw_04.api_testing.test.utils import cases
+import hw_03_2.api_testing.src.api as api
+from hw_03_2.api_testing.test.utils import cases
 
 logging.basicConfig(filename=None, level=logging.INFO,
                     format='[%(asctime)s] %(levelname).1s %(message)s', datefmt='%Y.%m.%d %H:%M:%S')

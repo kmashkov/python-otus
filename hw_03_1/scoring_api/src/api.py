@@ -13,7 +13,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
-import hw_03.scoring_api.src.scoring as scoring
+import hw_03_1.scoring_api.src.scoring as scoring
 
 SALT = "Otus"
 ADMIN_LOGIN = "admin"
