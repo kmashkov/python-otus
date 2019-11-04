@@ -1,15 +1,14 @@
 import datetime
-import functools
 import hashlib
 import logging
 import unittest
-from unittest.mock import patch
 
 import redis
 from pymemcache.client import base
 
 import hw_04.api_testing.src.api as api
 from hw_04.api_testing.src.store import CachedStore
+from hw_04.api_testing.test.utils import cases
 
 logging.basicConfig(filename=None, level=logging.INFO,
                     format='[%(asctime)s] %(levelname).1s %(message)s', datefmt='%Y.%m.%d %H:%M:%S')
@@ -21,21 +20,6 @@ STORE_CONFIG = {
     "cache_host": "localhost",
     "cache_port": 11211,
 }
-
-
-def cases(cases):
-    def decorator(f):
-        @functools.wraps(f)
-        def wrapper(*args):
-            for i, c in enumerate(cases):
-                new_args = args + (c if isinstance(c, tuple) else (c,))
-                try:
-                    f(*new_args)
-                except Exception as e:
-                    logging.error(f"Error while testing {f.__name__} with case number {i + 1}: {c}.")
-                    raise e
-        return wrapper
-    return decorator
 
 
 class TestSuite(unittest.TestCase):
