@@ -26,7 +26,7 @@
 # Вам наверняка пригодится itertoolsю
 # Можно свободно определять свои функции и т.п.
 # -----------------
-from itertools import groupby, combinations
+from itertools import combinations, product
 
 PICTURE_RANKS = {
     'T': '10',
@@ -36,6 +36,9 @@ PICTURE_RANKS = {
     'A': '14',
     '?': '15',
 }
+RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A']
+BLACK_JOKER_VARIATIONS = [''.join(map(str, x)) for x in product(RANKS, ['C', 'S'])]
+RED_JOKER_VARIATIONS = [''.join(map(str, x)) for x in product(RANKS, ['H', 'D'])]
 
 
 def hand_rank(hand):
@@ -104,7 +107,23 @@ def best_hand(hand):
 
 def best_wild_hand(hand):
     """best_hand но с джокерами"""
-    return
+    additional_cards = set()
+    removed = 0
+    if '?B' in hand:
+        additional_cards = additional_cards.union(BLACK_JOKER_VARIATIONS)
+        hand.remove('?B')
+        removed += 1
+    if '?R' in hand:
+        additional_cards = additional_cards.union(RED_JOKER_VARIATIONS)
+        hand.remove('?R')
+        removed += 1
+    can_add_cards = set(additional_cards) - set(hand)
+    can_add_card_variations = list(combinations([*can_add_cards], removed))
+    combs = []
+    for ext in can_add_card_variations:
+        best = sorted([(*hand_rank(x), x) for x in list(combinations([*hand, *ext], 5))], reverse=True)[0]
+        combs.append((best[0], best[-1]))
+    return sorted(combs, reverse=True)[0][-1]
 
 
 def test_best_hand():
@@ -131,4 +150,4 @@ def test_best_wild_hand():
 
 if __name__ == '__main__':
     test_best_hand()
-    # test_best_wild_hand()
+    test_best_wild_hand()
