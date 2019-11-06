@@ -14,8 +14,8 @@ from optparse import OptionParser
 
 from dateutil.relativedelta import relativedelta
 
-import hw_04.api_testing.src.scoring as scoring
-from hw_04.api_testing.src.store import CachedStore
+import hw_03_2.api_testing.src.scoring as scoring
+from hw_03_2.api_testing.src.store import CachedStore
 
 SALT = "Otus"
 ADMIN_LOGIN = "admin"
@@ -73,13 +73,13 @@ class GeneralField(metaclass=ABCMeta):
         obj.__dict__[self.name] = value
 
     def check(self, value):
-            if self._required and value is None:
-                raise ValueError(f"Field {self.name} must be presented in request")
-            if not self._nullable and not value:
-                raise ValueError(f"Field {self.name} can't be empty.")
-            if value:
-                self.check_value(value)
-            return True
+        if self._required and value is None:
+            raise ValueError(f"Field {self.name} must be presented in request.")
+        if not self._nullable and value in ['', None, [], {}]:
+            raise ValueError(f"Field {self.name} can't be empty.")
+        if value:
+            self.check_value(value)
+        return True
 
     @abc.abstractmethod
     def check_value(self, value):
@@ -120,7 +120,7 @@ class DateField(CharField):
         super().check_value(value)
         match = re.match("^\d{2}\.\d{2}\.\d{4}$", value)
         if not match:
-            raise ValueError(f"DateField {self.name} must has pattern DD.MM.YYYY")
+            raise ValueError(f"DateField {self.name} must has pattern DD.MM.YYYY.")
 
 
 class BirthDayField(DateField):
